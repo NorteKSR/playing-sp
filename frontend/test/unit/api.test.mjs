@@ -45,3 +45,26 @@ test('network failure → status 0', async () => {
   const api = createEbsClient({ baseUrl: 'https://ebs.test', getToken: () => 'j', fetchImpl: async () => { throw new TypeError('fail'); } });
   await assert.rejects(api.getNowPlaying(), (e) => e.status === 0 && e.code === 'network_error');
 });
+
+test('v1.3: 403 channel_not_allowed (§6 envelope, error.code) on every endpoint → isChannelNotAllowed', async () => {
+  const bodies = [{ version: 1, error: { code: 'channel_not_allowed', message: 'This extension is private.' } }];
+  for (const body of bodies) {
+    const api = createEbsClient({ baseUrl: 'https://ebs.test', getToken: () => 'jwt', fetchImpl: fakeFetch(403, body) });
+    for (const call of [() => api.getNowPlaying(), () => api.getLinkStatus(), () => api.startLink(), () => api.unlink()]) {
+      await assert.rejects(call(), (e) => e instanceof EbsError && e.status === 403 && e.code === 'channel_not_allowed'
+        && e.isChannelNotAllowed === true && e.message === 'This extension is private.' && !e.isAuth);
+    }
+  }
+});
+
+test('v1.3: a top-level error string is not matched (only error.code counts)', async () => {
+  const api = createEbsClient({ baseUrl: 'https://ebs.test', getToken: () => 'jwt', fetchImpl: fakeFetch(403, { error: 'channel_not_allowed', message: 'x' }) });
+  await assert.rejects(api.getNowPlaying(), (e) => e.status === 403 && e.code === 'http_403' && e.isChannelNotAllowed === false);
+});
+
+test('v1.3: other 403s and 401s are not channel_not_allowed', async () => {
+  for (const [status, code] of [[403, 'forbidden_role'], [403, 'spotify_forbidden'], [401, 'channel_not_allowed'], [401, 'invalid_token']]) {
+    const api = createEbsClient({ baseUrl: 'https://ebs.test', getToken: () => 'jwt', fetchImpl: fakeFetch(status, { version: 1, error: { code, message: 'x' } }) });
+    await assert.rejects(api.getNowPlaying(), (e) => e.status === status && e.code === code && e.isChannelNotAllowed === false);
+  }
+});

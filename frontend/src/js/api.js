@@ -1,7 +1,7 @@
 /**
- * EBS adapter (API_CONTRACT.md v1). All endpoint paths live here; payload parsing lives in model.js.
+ * EBS adapter (API_CONTRACT.md v1, payload version 1; v1.3 adds the 403 channel_not_allowed error). All endpoint paths live here; payload parsing lives in model.js.
  */
-import { normalizeNowPlaying, normalizeLinkStatus, parseErrorBody } from './model.js';
+import { normalizeNowPlaying, normalizeLinkStatus, parseErrorBody, isChannelNotAllowed } from './model.js';
 
 export const PATHS = Object.freeze({
   nowPlaying: '/api/now-playing',
@@ -20,6 +20,10 @@ export class EbsError extends Error {
   }
   get isAuth() {
     return this.status === 401;
+  }
+  /** v1.3: 403 channel_not_allowed (channel not on ALLOWED_CHANNEL_IDS). Terminal: don't retry. */
+  get isChannelNotAllowed() {
+    return isChannelNotAllowed(this.status, this.code);
   }
 }
 

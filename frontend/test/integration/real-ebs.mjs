@@ -26,6 +26,7 @@ const env = {
   POLL_INTERVAL_PLAYING_MS: '1000', POLL_INTERVAL_IDLE_MS: '1000', POLL_INTERVAL_PAUSED_MS: '1000',
   SPOTIFY_ACCOUNTS_BASE: MK, SPOTIFY_API_BASE: `${MK}/v1`, TWITCH_API_BASE: `${MK}/helix`,
   CORS_ALLOWED_ORIGINS: FE,
+  ALLOWED_CHANNEL_IDS: '12345', // v1.3: channel 12345 is allowed; 99999 is used for the private checks
 };
 const procs = [];
 const start = (args, cwd, extra = {}, ready) => new Promise((resolve, reject) => {
@@ -120,6 +121,44 @@ try {
     await cfg.getByRole('button', { name: 'Disconnect' }).click();
     await cfg.getByRole('button', { name: 'Yes, disconnect' }).click();
     await waitState(cfg, 'unlinked');
+  });
+
+  // ---------- v1.3 channel allowlist against the real EBS ----------
+  const tok = async (role, channel) => (await (await fetch(`${FE}/__dev/token?role=${role}&channel=${channel}`)).json()).token;
+  const PRIVATE_BODY = JSON.stringify({ version: 1, error: { code: 'channel_not_allowed', message: 'This extension is private.' } });
+  await check('real EBS v1.3: blocked channel → 403 with the exact §6 envelope on every endpoint (unlink POST + DELETE); 401 still first; channel before role', async () => {
+    const b = await tok('broadcaster', '99999');
+    const v = await tok('viewer', '99999');
+    const cases = [['GET', '/api/now-playing', v], ['GET', '/api/config/status', b], ['POST', '/api/config/link/start', b],
+      ['POST', '/api/config/unlink', b], ['DELETE', '/api/config/link', b], ['GET', '/api/config/status', v]];
+    for (const [method, p, t] of cases) {
+      const r = await fetch(E + p, { method, headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
+      const body = await r.text();
+      assert(r.status === 403 && JSON.stringify(JSON.parse(body)) === PRIVATE_BODY, `${method} ${p}: ${r.status} ${body}`);
+    }
+    const r401 = await fetch(E + '/api/now-playing');
+    assert(r401.status === 401, 'missing JWT should be 401, got ' + r401.status);
+  });
+
+  await check('real EBS v1.3: panel + config on a blocked channel render private and stop requesting', async () => {
+    const pp = await context.newPage();
+    let gets = 0;
+    pp.on('request', (r) => { if (r.url().endsWith('/api/now-playing') && r.method() === 'GET') gets += 1; });
+    await pp.goto(`${FE}/panel.html?channel=99999&anchor=panel&mode=viewer`);
+    await waitState(pp, 'private');
+    assert((await pp.textContent('.np-msg-title')) === 'This extension is private', 'panel copy');
+    const cp = await context.newPage();
+    let st = 0;
+    cp.on('request', (r) => { if (r.url().endsWith('/api/config/status') && r.method() === 'GET') st += 1; });
+    await cp.goto(`${FE}/config.html?channel=99999&mode=config`);
+    await waitState(cp, 'private');
+    assert(!(await cp.getByRole('button', { name: 'Connect Spotify' }).isVisible()), 'connect hidden');
+    const vp = await context.newPage();
+    await vp.goto(`${FE}/config.html?channel=99999&mode=config&role=viewer`);
+    await waitState(vp, 'private'); // channel check before role check → not "forbidden"
+    await sleep(4000);
+    assert(gets === 1 && st === 1, `requests after 403: now-playing ${gets}, status ${st}`);
+    await Promise.all([pp.close(), cp.close(), vp.close()]);
   });
 
   await check('no CSP violations', async () => assert(errors.length === 0, errors.join(' | ')));

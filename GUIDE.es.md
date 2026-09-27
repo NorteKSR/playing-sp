@@ -234,8 +234,12 @@ el mismo valor que `TWITCH_EXTENSION_OWNER_ID` si es tu canal; separa varios IDs
 `403 channel_not_allowed` ("This extension is private.") y nunca se consultará en Spotify. Complementa la
 **Streamer Allowlist** de Twitch (pestaña **Access** de la versión de tu extensión en la consola de desarrollador;
 consulta [Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)), que limita quién puede instalar la extensión; la lista
-del backend bloquea además la API. Déjala sin definir para permitir todos los canales. Más detalles:
+del backend bloquea además la API. En un canal bloqueado, los espectadores ven "This extension is private" y la página de
+configuración muestra el estado "Private" sin botones de configuración; la extensión deja de llamar al backend hasta que
+recibe un nuevo token de Twitch. Déjala sin definir para permitir todos los canales. Más detalles:
 [backend/README.md](backend/README.md#channel-allowlist-allowed_channel_ids-optional).
+
+![Panel de espectador en un canal que no está en ALLOWED_CHANNEL_IDS: "This extension is private"](docs/images/panel-private.png)
 
 **No cambies `TOKEN_ENCRYPTION_KEY`.** Cifra los tokens de Spotify guardados. Si la cambias o pierdes el volumen, todos
 los streamers tendrán que volver a conectar Spotify.

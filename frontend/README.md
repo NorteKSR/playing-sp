@@ -2,7 +2,7 @@
 
 Viewer views show the streamer's current Spotify track (album art, title, artists, progress bar that
 interpolates locally). The broadcaster config view links/unlinks Spotify through the EBS.
-Implements `../API_CONTRACT.md` **v1.2** (payload `version: 1`). Twitch rule notes with sources: `TWITCH_COMPLIANCE.md`.
+Implements `../API_CONTRACT.md` **v1.3** (v1.2 + optional channel allowlist; payload `version: 1`). Twitch rule notes with sources: `TWITCH_COMPLIANCE.md`.
 
 Plain HTML/CSS/JS. esbuild bundles each view into one readable (unminified) IIFE. No runtime dependencies.
 
@@ -42,13 +42,13 @@ views with a **Twitch-like CSP**, so CSP mistakes show up locally. Harness butto
   unknown, not linked, malformed message. The mock EBS changes its state and "broadcasts"; the harness forwards the
   message to every view's `listen('broadcast')` callback.
 - **Twitch context**: dark/light theme, overlay highlight, player controls, stream delay (`hlsLatencyBroadcaster`).
-- **Mock EBS**: fail the next GETs (error state + retry), slow EBS, "revoked" unlink, reload views.
+- **Mock EBS**: fail the next GETs (error state + retry), slow EBS, "revoked" unlink, **Channel not allowed (403 private)** / **Channel allowed** (v1.3; reload the views afterwards), reload views.
 - Config view: **Connect Spotify** opens a popup to a mock consent page (Agree/Cancel) → the config view polls to "Connected".
   "Required config pending/set" toggles the v1.2 `requiredConfigSet` flag ("Finishing setup with Twitch…").
 
 Each dev server builds into its own folder (`DEV_OUT_DIR`; default `.build/dev`, e2e `.build/e2e`, integration
 `.build/integration`) and uses its own ports (dev 8081/8090, e2e 8181/8190, integration 8281/8291 + EBS 8787 + upstream
-mocks 9090), so `npm run dev`, `test:e2e` and `test:integration` can run at the same time.
+mocks 9090), so `npm run dev`, `test:e2e` and `test:integration` can run at the same time. The e2e run uses 8181/8190 only if they're free. Otherwise it picks free ports (building into `.build/e2e-<port>`), so two e2e runs can also run in parallel. Force ports with `E2E_PORT=… E2E_EBS_PORT=… npm run test:e2e`.
 
 A single view can also be opened directly, e.g. `http://localhost:8081/panel.html?theme=light&latency=3`
 (`autoauth=0` keeps it in the loading state; see the header of `dev/mock-twitch-ext.js` for all params).
@@ -63,10 +63,24 @@ origin `http://localhost:8081` in CORS. Scenario buttons only drive the mock EBS
 
 ## Tests
 ```bash
-npm test             # unit tests (29): parsing/normalisation, progress math (incl. v1.2 serverTime), API adapter, Spotify logo integrity
-npm run test:e2e     # headless Chrome (playwright-core + system Chrome; CHROME_PATH to override): 31 checks, writes .screenshots/ (gitignored)
-npm run test:integration  # REAL ../backend (unmodified; EBS on 8787) on its bundled mock upstreams + this harness: 8 checks
+npm test             # unit tests (33): parsing/normalisation, progress math (incl. v1.2 serverTime), API adapter (incl. v1.3 channel_not_allowed), Spotify logo integrity
+npm run test:e2e     # headless Chrome (playwright-core + system Chrome; CHROME_PATH to override): 38 checks (incl. the v1.3 private state), writes .screenshots/ (gitignored)
+npm run test:integration  # REAL ../backend (unmodified; EBS on 8787) on its bundled mock upstreams + this harness: 10 checks (incl. v1.3 with ALLOWED_CHANNEL_IDS=12345)
 ```
+e2e uses ports 8181/8190 when free, otherwise any free port; override with `E2E_PORT` / `E2E_EBS_PORT`.
+
+## Private channels (API_CONTRACT v1.3, `ALLOWED_CHANNEL_IDS`)
+When the EBS has `ALLOWED_CHANNEL_IDS` set and the channel isn't on the list, its API returns **403 `channel_not_allowed`**
+(after the usual 401 JWT check), and PubSub never publishes. The frontend treats that as a terminal **`private`** state:
+- **Viewer views:** "This extension is private" / "It's limited to specific channels." with a padlock icon, and no art,
+  Spotify logo or link (`../docs/images/panel-private.png`).
+- **Config / live config:** pill "Private", and the text says the extension is limited to specific channels. Connect,
+  Disconnect and Refresh are hidden (`../docs/images/config-private.png`).
+- **No retry loop:** keep-alive, backoff retries, visibility refetches and link/required-config polling all stop. Only a
+  **new `onAuthorized`** (new token or channel) re-checks, once. If the channel was allowed in the meantime, the view recovers.
+- Other 403s (`forbidden_role`, `spotify_forbidden`) behave as before.
+- For Twitch review, the review channel must be on the list (or leave `ALLOWED_CHANNEL_IDS` unset).
+- In the dev harness, the "Channel not allowed (403 private)" / "Channel allowed" buttons toggle this on the mock EBS.
 
 ## Configuration
 | Value | Where | Notes |

@@ -7,7 +7,7 @@ import {
   SYNC_TO_STREAM_DELAY, MAX_STREAM_DELAY_MS, MAX_SAMPLE_AGE_MS, REQUEST_TIMEOUT_MS,
   KEEPALIVE_MS, KEEPALIVE_JITTER_MS,
 } from './config.js';
-import { STATE, parseBroadcastMessage, isNewer, subtitleFor } from './model.js';
+import { STATE, PRIVATE_STATE, parseBroadcastMessage, isNewer, subtitleFor } from './model.js';
 import { makeAnchor, positionAt, fraction, overrunMs, formatTime } from './progress.js';
 import { createEbsClient } from './api.js';
 import { getExt, createAuthStore, queryParam } from './twitch.js';
@@ -24,6 +24,7 @@ const MESSAGES = {
   [STATE.AD]: ['Short break', 'Music will be right back.'],
   [STATE.NOT_LINKED]: ['Not connected yet', "The streamer hasn't connected Spotify yet."],
   [STATE.UNKNOWN]: ['Nothing to show', 'Music will show up here when it starts.'],
+  [PRIVATE_STATE]: ['This extension is private', "It's limited to specific channels."],
   error: ["Couldn't load the current song", 'Retrying automatically…'],
   no_helper: ['Extension failed to load', 'Please refresh the page.'],
 };
@@ -87,6 +88,9 @@ export function startViewer(variant) {
   let keepAliveTimer = null;
   let overrunRefetchFor = null;
   let highlighted = false;
+  // v1.3: EBS answered 403 channel_not_allowed. Terminal: no retries, keep-alive or visibility refetches.
+  // Only a new onAuthorized (new token / channel) re-checks, once.
+  let privateMode = false;
   const pendingLive = new Set();
 
   const auth = createAuthStore();
@@ -188,7 +192,7 @@ export function startViewer(variant) {
   function scheduleKeepAlive() {
     clearTimeout(keepAliveTimer);
     keepAliveTimer = null;
-    if (!visible || !auth.get()) return;
+    if (!visible || !auth.get() || privateMode) return;
     keepAliveTimer = setTimeout(() => fetchNowPlaying('keepalive'), KEEPALIVE_MS + Math.random() * KEEPALIVE_JITTER_MS);
   }
 
@@ -198,7 +202,7 @@ export function startViewer(variant) {
     docVisible = nextDoc;
     visible = twitchVisible && docVisible;
     if (visible && !was) {
-      if (auth.get()) fetchNowPlaying('visible'); // also re-arms keep-alive
+      if (auth.get() && !privateMode) fetchNowPlaying('visible'); // also re-arms keep-alive
       else renderProgress();
     } else if (!visible && was) {
       clearTimeout(keepAliveTimer);
@@ -207,7 +211,24 @@ export function startViewer(variant) {
     updateTicker();
   }
 
+  function enterPrivate() {
+    privateMode = true;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retryAttempt = 0;
+    clearTimeout(keepAliveTimer);
+    keepAliveTimer = null;
+    for (const t of pendingLive) clearTimeout(t);
+    pendingLive.clear();
+    current = null;
+    anchor = null;
+    uiState = PRIVATE_STATE;
+    render();
+  }
+
   async function fetchNowPlaying(reason) {
+    // While private, only a new onAuthorized may re-check (stray timers are ignored).
+    if (privateMode && reason !== 'authorized' && reason !== 'reauthorized') return;
     clearTimeout(retryTimer);
     scheduleKeepAlive();
     const seq = ++fetchSeq;
@@ -216,6 +237,12 @@ export function startViewer(variant) {
       const receivedAt = Date.now();
       if (seq !== fetchSeq) return;
       retryAttempt = 0;
+      if (privateMode) {
+        // The channel was added to the allowlist: resume normal behaviour.
+        privateMode = false;
+        uiState = 'loading';
+        scheduleKeepAlive();
+      }
       // If the fetch reveals a change we haven't shown yet, respect the viewer's stream delay like PubSub does.
       const delay = streamDelayMs();
       const changed = current && (np.state !== current.state || (np.item && np.item.id) !== (current.item && current.item.id));
@@ -231,6 +258,10 @@ export function startViewer(variant) {
     } catch (err) {
       if (seq !== fetchSeq) return;
       console.warn('[now-playing] fetch failed', reason, err && err.code);
+      if (err && err.isChannelNotAllowed) {
+        enterPrivate(); // terminal: no retry, no keep-alive
+        return;
+      }
       if (err && err.isAuth && err.code === 'token_expired') {
         return; // the next onAuthorized (JWT refresh) triggers a fetch automatically
       }
@@ -243,6 +274,7 @@ export function startViewer(variant) {
   }
 
   function onBroadcast(target, contentType, message) {
+    if (privateMode) return; // v1.3: the EBS never publishes for non-allowed channels
     const receivedAt = Date.now();
     const parsed = parseBroadcastMessage(contentType, message, PARSE_OPTS);
     if (!parsed.ok) {

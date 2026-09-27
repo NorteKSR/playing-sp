@@ -184,7 +184,9 @@ This is not legal advice. Read the policies yourself before publishing anything.
   to make the backend refuse every other channel with `403 channel_not_allowed`. Unset means every channel is allowed.
   It complements Twitch's Streamer Allowlist (Access tab in the developer console, see
   [Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)), which limits who can *install* the extension, by also blocking the
-  backend. The frontend in this repo has no dedicated "private" screen yet, so blocked channels see a generic error.
+  backend. On a blocked channel the extension shows a terminal "This extension is private" screen (viewer views) or a
+  "Private" state with no setup buttons (config page), and stops polling the backend
+  ([viewer](docs/images/panel-private.png), [config](docs/images/config-private.png)).
   See [backend/README.md](backend/README.md#channel-allowlist-allowed_channel_ids-optional).
 
 More detail: [docs/PLATFORM_NOTES.md](docs/PLATFORM_NOTES.md),

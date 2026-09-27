@@ -54,7 +54,7 @@ export function startConfig(variant) {
   );
 
   // ----- state -----
-  let state = 'loading'; // loading | unlinked | revoked | linking | linked | error | forbidden
+  let state = 'loading'; // loading | unlinked | revoked | linking | linked | error | forbidden | private (v1.3)
   let status = null;
   let pollTimer = null;
   let pollUntil = 0;
@@ -70,7 +70,7 @@ export function startConfig(variant) {
     root.dataset.state = state;
     const finishing = isFinishing();
     root.dataset.finishing = finishing ? 'true' : 'false';
-    const pillText = finishing ? 'Finishing setup…' : { loading: 'Checking…', unlinked: 'Not connected', revoked: 'Connection lost', linking: 'Waiting for Spotify…', linked: 'Connected', error: 'Error', forbidden: 'No access' }[state];
+    const pillText = finishing ? 'Finishing setup…' : { loading: 'Checking…', unlinked: 'Not connected', revoked: 'Connection lost', linking: 'Waiting for Spotify…', linked: 'Connected', error: 'Error', forbidden: 'No access', private: 'Private' }[state];
     setText(pill, pillText);
     pill.dataset.tone = finishing ? 'neutral' : state === 'linked' ? 'ok' : state === 'revoked' || state === 'error' || state === 'forbidden' ? 'bad' : 'neutral';
     finishingEl.hidden = !finishing;
@@ -83,6 +83,7 @@ export function startConfig(variant) {
       linked: 'Viewers can now see the song you are playing on Spotify.',
       error: "Couldn't reach the extension server. Check your connection and try again.",
       forbidden: 'Only the channel owner can manage the Spotify connection.',
+      private: 'This extension is limited to specific channels, so it isn\'t available on this channel. No setup is needed here.',
     };
     setText(lead, finishing ? 'Spotify is connected.' : leads[state]);
 
@@ -114,9 +115,14 @@ export function startConfig(variant) {
     cancelBtn.hidden = state !== 'linking';
     disconnectBtn.hidden = !linked || !confirmRow.hidden;
     disconnectBtn.disabled = busy;
-    refreshBtn.hidden = state === 'loading' || state === 'forbidden';
+    refreshBtn.hidden = state === 'loading' || state === 'forbidden' || state === 'private';
     refreshBtn.disabled = busy;
     if (state !== 'linking') fallbackLink.hidden = true;
+    if (state === 'private') {
+      connectBtn.hidden = true;
+      cancelBtn.hidden = true;
+      disconnectBtn.hidden = true;
+    }
     if (!linked) confirmRow.hidden = true;
     const note = linked && status ? linkNote(status.lastError) : null;
     linkNoteEl.hidden = !note;
@@ -166,6 +172,19 @@ export function startConfig(variant) {
     }, wait);
   }
 
+  /** v1.3: 403 channel_not_allowed. Terminal: stop link polling and finish polling; no retries. */
+  function enterPrivate() {
+    state = 'private';
+    stopPolling();
+    clearTimeout(finishTimer);
+    finishTimer = null;
+    status = null;
+    nowPlaying = null;
+    lastError = null;
+    confirmRow.hidden = true;
+    render();
+  }
+
   function applyStatus(s) {
     status = s;
     if (s.linked) {
@@ -206,6 +225,7 @@ export function startConfig(variant) {
       lastError = null;
       applyStatus(s);
     } catch (err) {
+      if (err.isChannelNotAllowed) return enterPrivate();
       if (err.status === 403) state = 'forbidden';
       else if (!quiet) {
         lastError = friendly(err);
@@ -218,8 +238,9 @@ export function startConfig(variant) {
   async function refreshNowPlaying() {
     try {
       nowPlaying = await withToken(() => api.getNowPlaying());
-    } catch {
+    } catch (err) {
       nowPlaying = null;
+      if (err && err.isChannelNotAllowed) return enterPrivate();
     }
     render();
   }
@@ -229,7 +250,7 @@ export function startConfig(variant) {
     pollUntil = Date.now() + POLL_MAX_MS;
     const tick = async () => {
       await refreshStatus({ quiet: true });
-      if (state === 'linked') return;
+      if (state === 'linked' || state === 'private') return;
       if (Date.now() >= pollUntil) {
         state = status && status.lastError === 'revoked' ? 'revoked' : 'unlinked';
         lastError = 'Timed out waiting for Spotify. Try connecting again.';
@@ -283,6 +304,10 @@ export function startConfig(variant) {
       startPolling();
     } catch (err) {
       if (popup && !popup.closed) popup.close();
+      if (err.isChannelNotAllowed) {
+        busy = false;
+        return enterPrivate();
+      }
       lastError = err.status === 403 ? 'Only the channel owner can connect Spotify.' : friendly(err) || 'Could not start the Spotify connection.';
     } finally {
       busy = false;
@@ -302,6 +327,10 @@ export function startConfig(variant) {
       state = 'unlinked';
       lastError = null;
     } catch (err) {
+      if (err.isChannelNotAllowed) {
+        busy = false;
+        return enterPrivate();
+      }
       lastError = friendly(err) || 'Could not disconnect.';
     } finally {
       busy = false;
@@ -309,7 +338,7 @@ export function startConfig(variant) {
     }
   }
 
-  connectBtn.addEventListener('click', connect);
+  connectBtn.addEventListener('click', () => state !== 'private' && connect());
   cancelBtn.addEventListener('click', () => {
     stopPolling();
     state = status && status.lastError === 'revoked' ? 'revoked' : 'unlinked';
@@ -342,10 +371,15 @@ export function startConfig(variant) {
   ext.onAuthorized((a) => {
     if (!a || !a.token) return;
     auth.set(a);
+    if (started && state === 'private') {
+      refreshStatus({ quiet: true }); // new token/channel: re-check once (no loop)
+      return;
+    }
     if (!started) {
       started = true;
       refreshStatus();
       ext.listen('broadcast', (t, ct, msg) => {
+        if (state === 'private') return; // v1.3: never published for non-allowed channels
         const p = parseBroadcastMessage(ct, msg, PARSE_OPTS);
         if (!p.ok) return;
         if (p.value.state === STATE.NOT_LINKED) {

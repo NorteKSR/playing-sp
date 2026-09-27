@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeNowPlaying, parseBroadcastMessage, isNewer, normalizeLinkStatus, safeUrl, subtitleFor, parseErrorBody } from '../../src/js/model.js';
+import { normalizeNowPlaying, parseBroadcastMessage, isNewer, normalizeLinkStatus, safeUrl, subtitleFor, parseErrorBody, isChannelNotAllowed, PRIVATE_STATE, CHANNEL_NOT_ALLOWED, STATE } from '../../src/js/model.js';
 
 const OPTS = { imageHosts: ['i.scdn.co'], linkHosts: ['open.spotify.com'] };
 const base = {
@@ -108,4 +108,19 @@ test('link status + error envelope', () => {
   assert.equal(normalizeLinkStatus({}).ok, false);
   assert.deepEqual(parseErrorBody({ version: 1, error: { code: 'token_expired', message: 'm' } }), { code: 'token_expired', message: 'm' });
   assert.deepEqual(parseErrorBody(null), { code: null, message: null });
+});
+
+test('v1.3: envelope error.code, isChannelNotAllowed, private is a UI-only state', () => {
+  assert.deepEqual(parseErrorBody({ version: 1, error: { code: 'channel_not_allowed', message: 'This extension is private.' } }), { code: 'channel_not_allowed', message: 'This extension is private.' });
+  // Only the §6 envelope counts: a top-level error string is not parsed as a code.
+  assert.deepEqual(parseErrorBody({ error: 'channel_not_allowed', message: 'x' }), { code: null, message: null });
+  assert.equal(CHANNEL_NOT_ALLOWED, 'channel_not_allowed');
+  assert.equal(isChannelNotAllowed(403, 'channel_not_allowed'), true);
+  assert.equal(isChannelNotAllowed(403, 'forbidden_role'), false);
+  assert.equal(isChannelNotAllowed(401, 'channel_not_allowed'), false);
+  assert.equal(PRIVATE_STATE, 'private');
+  assert.ok(!Object.values(STATE).includes(PRIVATE_STATE));
+  // A PubSub payload claiming state "private" is not a contract state → unknown.
+  const r = normalizeNowPlaying({ version: 1, type: 'now_playing', state: 'private' });
+  assert.equal(r.value.state, 'unknown');
 });

@@ -17,6 +17,18 @@ export const STATE = Object.freeze({
   UNKNOWN: 'unknown',
 });
 
+/**
+ * UI-only state (never sent by the EBS as a NowPlaying state): the channel is not on the EBS's
+ * ALLOWED_CHANNEL_IDS list (API_CONTRACT v1.3) → HTTP 403 {code: "channel_not_allowed"}.
+ */
+export const PRIVATE_STATE = 'private';
+export const CHANNEL_NOT_ALLOWED = 'channel_not_allowed';
+
+/** v1.3: true for the "this extension is private" 403. Other 403s (forbidden_role, …) are not this. */
+export function isChannelNotAllowed(status, code) {
+  return status === 403 && code === CHANNEL_NOT_ALLOWED;
+}
+
 const KNOWN_STATES = new Set(Object.values(STATE));
 const MESSAGE_TYPES = new Set(['now_playing', 'heartbeat']);
 const MAX_TEXT = 300;
@@ -156,7 +168,10 @@ export function normalizeLinkStatus(raw) {
   };
 }
 
-/** Parse the contract error envelope { version, error: {code, message} }. */
+/**
+ * Parse the contract error envelope { version, error: {code, message} } (§6). Only error.code is used;
+ * e.g. v1.3: 403 {"version":1,"error":{"code":"channel_not_allowed","message":"This extension is private."}}.
+ */
 export function parseErrorBody(raw) {
   const e = raw && typeof raw === 'object' && raw.error && typeof raw.error === 'object' ? raw.error : null;
   return { code: text(e && e.code, 64) || null, message: text(e && e.message, 300) || null };

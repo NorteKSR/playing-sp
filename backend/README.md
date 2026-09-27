@@ -135,6 +135,11 @@ extension; `ALLOWED_CHANNEL_IDS` makes the backend
 refuse everyone else even if the extension is installed somewhere. Find a channel ID with the Twitch API
 (`GET /helix/users?login=<name>`) or the `channel_id` claim of an extension JWT.
 
+The frontend shows blocked channels a terminal private state (see `../frontend/README.md` → "Private channels"):
+
+![Viewer panel: "This extension is private"](../docs/images/panel-private.png)
+![Config page: "Private" state](../docs/images/config-private.png)
+
 ## Required setup: Spotify Developer Dashboard
 
 1. Log in at <https://developer.spotify.com/dashboard> with the account that will **own** the app.

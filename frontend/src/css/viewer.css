@@ -39,6 +39,9 @@ html[data-theme='light'] .np-art-fallback { background: linear-gradient(135deg, 
 .np-msg-icon::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; border: 2px solid var(--fg-muted); }
 .np[data-state='error'] .np-msg-icon::after, .np[data-state='no_helper'] .np-msg-icon::after { border-color: var(--danger); }
 .np[data-state='not_linked'] .np-msg-icon::after { border-style: dashed; }
+/* private (v1.3): a small padlock drawn with CSS (no image asset) */
+.np[data-state='private'] .np-msg-icon::after { inset: 19px 13px 10px; border: 0; border-radius: 2px; background: var(--fg-muted); }
+.np[data-state='private'] .np-msg-icon::before { content: ''; position: absolute; left: 15px; top: 10px; width: 10px; height: 11px; box-sizing: border-box; border: 2px solid var(--fg-muted); border-bottom: 0; border-radius: 5px 5px 0 0; }
 .np-msg-title { font-weight: 700; }
 .np-msg-detail { color: var(--fg-muted); font-size: 13px; }
 

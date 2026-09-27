@@ -2,15 +2,26 @@
 // headless Chrome via playwright-core, asserts every state, and writes screenshots to .screenshots/ (gitignored).
 //   npm run test:e2e        (CHROME_PATH=/path/to/chrome to override the browser)
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
 import { chromium } from 'playwright-core';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SHOTS = path.join(ROOT, '.screenshots');
-const PORT = 8181, EBS = 8190;
+// Ports: E2E_PORT / E2E_EBS_PORT override; otherwise 8181/8190 if free, else any free port (parallel runs don't collide).
+async function freePort(preferred) {
+  const tryListen = (port) => new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(null));
+    srv.listen(port, () => { const p = srv.address().port; srv.close(() => resolve(p)); });
+  });
+  return (preferred && (await tryListen(preferred))) || tryListen(0);
+}
+const PORT = Number(process.env.E2E_PORT) || (await freePort(8181));
+const EBS = Number(process.env.E2E_EBS_PORT) || (await freePort(PORT === 8181 ? 8190 : 0));
 const BASE = `http://localhost:${PORT}`;
 const MOCK = `http://localhost:${EBS}`;
 const CHROME = process.env.CHROME_PATH || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
@@ -32,7 +43,7 @@ const post = (p, b) => fetch(MOCK + p, { method: 'POST', headers: { 'Content-Typ
 
 await mkdir(SHOTS, { recursive: true });
 async function startServer(extraEnv = {}) {
-  const env = { ...process.env, PORT: String(PORT), MOCK_EBS_PORT: String(EBS), DEV_OUT_DIR: '.build/e2e', ...extraEnv };
+  const env = { ...process.env, PORT: String(PORT), MOCK_EBS_PORT: String(EBS), DEV_OUT_DIR: PORT === 8181 ? '.build/e2e' : `.build/e2e-${PORT}`, ...extraEnv };
   delete env.EBS_BASE_URL;
   delete env.DEV_EXTENSION_SECRET;
   const srv = spawn(process.execPath, ['dev/server.mjs'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'inherit'] });
@@ -470,6 +481,124 @@ await check('keep-alive pauses on document visibilitychange (hidden tab) and ref
   assert(countSince(t2) === 1, `expected immediate GET when shown, got ${countSince(t2)}`);
 });
 
+// ---------- v1.3 private channel (ALLOWED_CHANNEL_IDS): 403 channel_not_allowed, no retry loop ----------
+const mockState = () => fetch(MOCK + '/__mock/state').then((r) => r.json());
+const calls = async () => (await mockState()).calls;
+
+await check('v1.3 private: panel shows "This extension is private" and makes no further requests (keep-alive, visibility, retry)', async () => {
+  await post('/__mock/settings', { channelAllowed: false, resetCalls: true });
+  const t = Date.now();
+  await kp.goto(BASE + '/panel.html?anchor=panel&mode=viewer');
+  await kp.waitForFunction(() => document.getElementById('app').dataset.state === 'private', null, { timeout: 5000 });
+  assert((await kp.textContent('.np-msg-title')) === 'This extension is private', 'title');
+  assert((await kp.textContent('.np-msg-detail')) === "It's limited to specific channels.", 'detail');
+  assert(!(await kp.locator('.np-art').isVisible()) && !(await kp.locator('.np-card').isVisible()), 'no album art / card');
+  assert(await kp.locator('.np-footer').evaluate((el) => getComputedStyle(el).visibility === 'hidden'), 'no Spotify logo / link');
+  await sleep(7500); // > 2 keep-alive intervals (3 s) and > first retry backoff (5 s)
+  await kp.evaluate(() => window.__mockTwitch.setVisible(false));
+  await sleep(300);
+  await kp.evaluate(() => window.__mockTwitch.setVisible(true));
+  await sleep(1500);
+  assert(countSince(t) === 1, `expected exactly 1 GET after the 403, got ${countSince(t)}`);
+  assert((await calls()).nowPlaying === 1, 'mock saw ' + (await calls()).nowPlaying);
+});
+
+await check('v1.3 private: a new onAuthorized re-checks exactly once, then stays quiet', async () => {
+  const t = Date.now();
+  await kp.evaluate(() => window.__mockTwitch.authorize());
+  await sleep(4000);
+  assert(countSince(t) === 1, `expected 1 GET after re-authorization, got ${countSince(t)}`);
+  assert((await kp.evaluate(() => document.getElementById('app').dataset.state)) === 'private', 'still private');
+});
+
+await check('v1.3 private: re-authorization after the channel is allowed again resumes normally', async () => {
+  await post('/__mock/settings', { channelAllowed: true });
+  await kp.evaluate(() => window.__mockTwitch.authorize());
+  await kp.waitForFunction(() => document.getElementById('app').dataset.state === 'playing', null, { timeout: 5000 });
+  const t = Date.now();
+  await sleep(4000);
+  assert(countSince(t) >= 1, 'keep-alive resumed');
+});
+
+await kp.close(); // its keep-alive would add requests to the mock's counters
+const hp = await context.newPage();
+watch(hp);
+await hp.setViewportSize({ width: 1400, height: 1100 });
+const hframe = (id) => hp.frameLocator(`#${id}`);
+const hstate = (id) => hp.locator(`#${id}`).evaluate((f) => f.contentDocument.getElementById('app').dataset.state).catch(() => null);
+async function hwait(id, want, timeout = 5000) {
+  const t0 = Date.now();
+  let s;
+  while (Date.now() - t0 < timeout) { s = await hstate(id); if (s === want) return; await sleep(100); }
+  throw new Error(`${id}: expected state ${want}, got ${s}`);
+}
+
+await check('v1.3 private: every view renders the private state (panel, overlay, component, config, live_config)', async () => {
+  await post('/__mock/settings', { channelAllowed: false, resetCalls: true });
+  await hp.goto(BASE + '/');
+  for (const id of ['v-panel', 'v-overlay', 'v-component', 'v-config', 'v-live']) await hwait(id, 'private');
+  for (const id of ['v-panel', 'v-overlay', 'v-component']) {
+    assert((await hframe(id).locator('.np-msg-title').textContent()) === 'This extension is private', id + ' title');
+    assert(!(await hframe(id).locator('.np-art').isVisible()), id + ' art hidden');
+  }
+  for (const id of ['v-config', 'v-live']) {
+    const f = hframe(id);
+    assert((await f.locator('.cfg-pill').textContent()) === 'Private', id + ' pill');
+    assert((await f.locator('.cfg-lead').textContent()).includes('limited to specific channels'), id + ' lead');
+    for (const name of ['Connect Spotify', 'Disconnect', 'Refresh status', 'Cancel']) {
+      assert(!(await f.getByRole('button', { name }).isVisible()), `${id}: "${name}" should be hidden`);
+    }
+    assert(!(await f.locator('.cfg-brand').isVisible()) && !(await f.locator('.cfg-help').isVisible()), id + ' no logo / help');
+  }
+  const c0 = await calls();
+  await sleep(7000);
+  const c1 = await calls();
+  assert(c1.nowPlaying === c0.nowPlaying && c1.status === c0.status, `requests kept coming: ${JSON.stringify(c0)} → ${JSON.stringify(c1)}`);
+  assert(c1.nowPlaying === 3 && c1.status === 2, 'one request per view: ' + JSON.stringify(c1));
+});
+await hp.evaluate(() => window.__harness.eachMock((m) => m.setContext({ theme: 'dark' })));
+await sleep(300);
+await hp.locator('#v-panel').screenshot({ path: path.join(SHOTS, 'panel-private.png') });
+await hp.locator('#v-config').screenshot({ path: path.join(SHOTS, 'config-private.png') });
+
+await check('v1.3 private: callback returns channel_not_allowed while linking → config ends private, polling stops', async () => {
+  await post('/__mock/settings', { channelAllowed: true, linked: false, lastError: null });
+  await hp.locator('#v-config').evaluate((f) => f.contentWindow.location.reload());
+  await hwait('v-config', 'unlinked');
+  const popupP = context.waitForEvent('page', { timeout: 5000 });
+  await hframe('v-config').getByRole('button', { name: 'Connect Spotify' }).click();
+  const popup = await popupP;
+  await hwait('v-config', 'linking');
+  await popup.waitForURL(/__mock\/authorize/, { timeout: 5000 });
+  await post('/__mock/settings', { channelAllowed: false }); // allowlist changed mid-flow
+  const closed = popup.waitForEvent('close', { timeout: 6000 });
+  await popup.click('#approve');
+  await popup.waitForLoadState();
+  assert((await popup.textContent('h2')) === 'This extension is private', 'callback error page');
+  await closed; // the callback page closes itself
+  await hwait('v-config', 'private', 5000);
+  const s0 = (await calls()).status;
+  await sleep(5000);
+  const s1 = (await calls()).status;
+  assert(s1 === s0, `status polling continued: ${s0} → ${s1}`);
+  assert(!(await hframe('v-config').getByRole('button', { name: /Connect|Open Spotify again/ }).isVisible()), 'no connect button');
+});
+
+await check('v1.3: channel check runs before the role check → a viewer token on a blocked channel sees private, not "No access"', async () => {
+  await post('/__mock/settings', { channelAllowed: false });
+  await hp.goto(BASE + '/config.html?mode=config&platform=web&role=viewer');
+  await hp.waitForFunction(() => document.getElementById('app').dataset.state === 'private', null, { timeout: 5000 });
+  assert(!(await hp.locator('.cfg-lead').textContent()).includes('Only the channel owner'), 'forbidden_role copy must not win');
+});
+
+await check('v1.3: other 403s keep their behaviour (viewer role on config → "No access", not private)', async () => {
+  await post('/__mock/settings', { channelAllowed: true });
+  await hp.goto(BASE + '/config.html?mode=config&platform=web&role=viewer');
+  await hp.waitForFunction(() => document.getElementById('app').dataset.state === 'forbidden', null, { timeout: 5000 });
+});
+await hp.close();
+await post('/__mock/settings', { channelAllowed: true });
+
 await check('no CSP violations / page errors in keep-alive phase', async () => {
   assert(cspViolations.length === 0, 'CSP: ' + cspViolations.join(' | '));
   assert(pageErrors.length === 0, 'errors: ' + pageErrors.join(' | '));
@@ -477,6 +606,7 @@ await check('no CSP violations / page errors in keep-alive phase', async () => {
 
 await browser.close();
 await stopServer(server);
+if (PORT !== 8181) await rm(path.join(ROOT, `.build/e2e-${PORT}`), { recursive: true, force: true }); // fallback-port build dir
 const failed = results.filter((r) => !r[0]);
 console.log(`\n${results.length - failed.length}/${results.length} e2e checks passed; screenshots in ${path.relative(process.cwd(), SHOTS) || SHOTS}/`);
 process.exit(failed.length ? 1 : 0);

@@ -39,5 +39,7 @@ $('#slow').onclick = () => post('/__mock/settings', { delayMs: 2000 });
 $('#fast').onclick = () => post('/__mock/settings', { delayMs: 0 });
 $('#revoked').onclick = () => post('/__mock/settings', { linked: false, lastError: 'revoked' }).then(() => log('unlinked (revoked)'));
 $('#reqcfg-pending').onclick = () => post('/__mock/settings', { requiredConfigSet: false }).then(() => log('requiredConfigSet=false'));
+$('#private').onclick = () => post('/__mock/settings', { channelAllowed: false }).then(() => log('channel not allowed: API → 403 channel_not_allowed (reload views to see it)'));
+$('#allowed').onclick = () => post('/__mock/settings', { channelAllowed: true }).then(() => log('channel allowed again'));
 $('#reqcfg-done').onclick = () => post('/__mock/settings', { requiredConfigSet: true }).then(() => log('requiredConfigSet=true'));
 $('#reload').onclick = () => frames().forEach((f) => f.contentWindow.location.reload());

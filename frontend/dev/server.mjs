@@ -117,7 +117,12 @@ const mock = {
   nowPlayingCalls: 0,
   linkedLastError: null, // lastError reported while linked (spotify_forbidden, rate_limited, ...)
   requiredConfigSet: null, // v1.2: null = feature disabled, false = pending, true = set
+  channelAllowed: true, // v1.3: false = channel not on ALLOWED_CHANNEL_IDS → 403 channel_not_allowed
+  calls: { nowPlaying: 0, status: 0, linkStart: 0, unlink: 0 }, // per-endpoint request counters (tests)
 };
+// v1.3: blocked routes. Unlink is blocked on both POST /api/config/unlink and DELETE /api/config/link.
+const PRIVATE_ROUTES = new Set(['/api/now-playing', '/api/config/status', '/api/config/link/start', '/api/config/unlink', '/api/config/link']);
+const notAllowed = (res) => err(res, 403, 'channel_not_allowed', 'This extension is private.');
 function nowPlaying(state, item, progressMs = 0, isPlaying = state === 'playing') {
   const now = Date.now();
   return { version: 1, type: 'now_playing', channelId: '123456', state, item: item || null, progressMs, isPlaying, sampledAt: now, updatedAt: now };
@@ -199,6 +204,8 @@ http.createServer(async (req, res) => {
     if (b.lastError !== undefined) mock.lastError = b.lastError;
     if (b.linkedLastError !== undefined) mock.linkedLastError = b.linkedLastError;
     if (b.requiredConfigSet !== undefined) mock.requiredConfigSet = b.requiredConfigSet;
+    if (typeof b.channelAllowed === 'boolean') mock.channelAllowed = b.channelAllowed;
+    if (b.resetCalls) { mock.calls = { nowPlaying: 0, status: 0, linkStart: 0, unlink: 0 }; mock.nowPlayingCalls = 0; }
     return json(res, 200, { ok: true, mock: { ...mock } });
   }
   if (p === '/__mock/state') return json(res, 200, mock);
@@ -220,6 +227,11 @@ http.createServer(async (req, res) => {
     const state = url.searchParams.get('state');
     if (!pendingStates.has(state)) return html(res, 400, 'Link failed', 'Invalid or expired state.');
     pendingStates.delete(state);
+    if (!mock.channelAllowed) {
+      // v1.3: callback for a non-allowed channel → 403 self-closing page, reason channel_not_allowed (state consumed, nothing linked).
+      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end('<!doctype html><meta charset=utf-8><title>This extension is private</title><body style="font-family:sans-serif;background:#121212;color:#fff;padding:24px"><h2>This extension is private</h2><p>It\'s limited to specific channels. This window will close.</p><script>setTimeout(()=>window.close(),1500)</script></body>');
+    }
     if (url.searchParams.get('error')) return html(res, 400, 'Link cancelled', 'Spotify access was denied.');
     mock.linked = true;
     mock.spotify = { userId: 'mockuser', displayName: 'Mock Streamer' };
@@ -238,6 +250,13 @@ http.createServer(async (req, res) => {
   const v = verifyJwt(m[1], SECRET);
   if (!v.ok) return err(res, 401, v.code, v.code);
   const role = v.payload.role;
+  if (p === '/api/now-playing') mock.calls.nowPlaying += 1;
+  if (p === '/api/config/status') mock.calls.status += 1;
+  if (p === '/api/config/link/start') mock.calls.linkStart += 1;
+  if (p === '/api/config/unlink' || p === '/api/config/link') mock.calls.unlink += 1;
+  // v1.3 order (API_CONTRACT §2): JWT (401) → channel allowlist (403 channel_not_allowed) → role (403 forbidden_role).
+  // Same §6 envelope as every other error: {"version":1,"error":{"code":"channel_not_allowed","message":"This extension is private."}}
+  if (!mock.channelAllowed && PRIVATE_ROUTES.has(p)) return notAllowed(res);
 
   if (p === '/api/now-playing' && req.method === 'GET') {
     mock.nowPlayingCalls += 1;
