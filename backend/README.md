@@ -108,8 +108,32 @@ to the CORS list; set empty in production), `TWITCH_EXTENSION_VERSION` + `TWITCH
 `TWITCH_REQUIRED_CONFIGURATION_ON_UNLINK` (see "Required configuration" below), `LOG_LEVEL`, `SPOTIFY_USE_PKCE` (true), `TWITCH_PUBSUB_DISABLED`
 (log instead of sending), `TWITCH_JWT_CLOCK_TOLERANCE_SEC` (5), `POLL_*`, `HEARTBEAT_INTERVAL_MS`,
 `SEEK_THRESHOLD_MS`, `POLL_ONLY_WHEN_VIEWED` (true), `VIEWER_ACTIVITY_WINDOW_MS` (600000),
-`API_RATE_LIMIT_PER_MINUTE` (120), `POLLER_ENABLED`, and `SPOTIFY_ACCOUNTS_BASE` / `SPOTIFY_API_BASE` /
-`TWITCH_API_BASE` (for mocks only).
+`API_RATE_LIMIT_PER_MINUTE` (120), `POLLER_ENABLED`, `ALLOWED_CHANNEL_IDS` (see below), and `SPOTIFY_ACCOUNTS_BASE` /
+`SPOTIFY_API_BASE` / `TWITCH_API_BASE` (for mocks only).
+
+### Channel allowlist (`ALLOWED_CHANNEL_IDS`, optional)
+
+Comma-separated numeric Twitch channel IDs, e.g. `ALLOWED_CHANNEL_IDS=12345678` or `12345678,87654321`.
+Whitespace is trimmed and empty entries are ignored; any non-numeric entry makes startup fail with a config error.
+Unset or empty = every channel is allowed (default).
+
+When set, only the listed channels may start linking (`POST /api/config/link/start`), complete it
+(`GET /auth/spotify/callback`: the channel bound in the signed state is checked; a blocked channel gets the
+self-closing popup page with HTTP 403 and reason `channel_not_allowed`), read `GET /api/config/status`, unlink
+(`POST /api/config/unlink`, `DELETE /api/config/link`) and read `GET /api/now-playing`. Everyone else gets
+`403 {"version":1,"error":{"code":"channel_not_allowed","message":"This extension is private."}}`. The check runs right
+after JWT verification, so missing/invalid/expired tokens still get 401, and before the role check. The poller skips
+already-linked channels that are not in the list (no Spotify polling, no PubSub). At startup the EBS logs only the
+list size ("Channel allowlist: N channel(s) allowed"), never the IDs.
+
+Unlink is blocked too, for consistency: a channel removed from the list keeps its encrypted tokens in `tokens.json`
+but they are never used. To purge them, add the channel back and unlink, or delete the entry from the store.
+
+This complements Twitch's own **Streamer Allowlist** (the **Access** tab of your extension version in the Twitch
+developer console, see [Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)), which controls which streamers can *install* the released
+extension; `ALLOWED_CHANNEL_IDS` makes the backend
+refuse everyone else even if the extension is installed somewhere. Find a channel ID with the Twitch API
+(`GET /helix/users?login=<name>`) or the `channel_id` claim of an extension JWT.
 
 ## Required setup: Spotify Developer Dashboard
 

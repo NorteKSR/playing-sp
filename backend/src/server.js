@@ -20,6 +20,8 @@ server.headersTimeout = 10000;
 
 server.listen(config.port, config.host, async () => {
   log.info(`EBS listening on http://${config.host}:${config.port} (CORS: ${config.corsAllowedOrigins.join(', ') || 'none'})`);
+  const n = config.allowedChannelIds?.length || 0;
+  log.info(n ? `Channel allowlist: ${n} channel(s) allowed (ALLOWED_CHANNEL_IDS)` : 'Channel allowlist: disabled (all channels allowed)');
   if (config.twitch.pubsubDisabled) log.warn('TWITCH_PUBSUB_DISABLED=true: PubSub messages are only logged');
   if (config.poll.enabled) {
     await svc.poller.start();

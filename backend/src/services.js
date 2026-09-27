@@ -8,6 +8,7 @@ import { TwitchPubSubClient, RateLimitedPublisher } from './twitch/pubsub.js';
 import { TwitchExtensionConfigClient } from './twitch/extensionConfig.js';
 import { Poller } from './poller/poller.js';
 import { createApp } from './app.js';
+import { channelAllowlist } from './config.js';
 
 export function createLogger(level = 'info') {
   const order = { debug: 10, info: 20, warn: 30, error: 40, silent: 100 };
@@ -24,7 +25,7 @@ export function buildServices(config, { fetch = globalThis.fetch, now = () => Da
   const twitchClient = new TwitchPubSubClient({ clientId: config.twitch.clientId, secret: config.twitch.secret, ownerId: config.twitch.ownerId, apiBase: config.twitch.apiBase, fetch, now });
   const publisher = new RateLimitedPublisher({ client: twitchClient, now, log, disabled: config.twitch.pubsubDisabled });
   const tokens = new TokenManager({ store, spotify, now, log, onRevoked: () => {} });
-  const poller = new Poller({ store, tokens, spotify, publisher, poll: config.poll, now, log });
+  const poller = new Poller({ store, tokens, spotify, publisher, poll: config.poll, now, log, isChannelAllowed: channelAllowlist(config.allowedChannelIds) });
   const twitchConfig = config.twitch.requiredConfiguration
     ? new TwitchExtensionConfigClient({ clientId: config.twitch.clientId, secret: config.twitch.secret, ownerId: config.twitch.ownerId, extensionVersion: config.twitch.extensionVersion, apiBase: config.twitch.apiBase, fetch, now })
     : null;

@@ -1,9 +1,17 @@
 # API Contract – Twitch "Now Playing on Spotify" Extension (EBS ⇄ Frontend)
 
 **Owner:** backend (EBS). **Consumers:** frontend (panel / overlay / config / live-config views).
-**Contract version:** 1.2 (document). Payload `version` field is still **1**: all changes since v1 are additive.
+**Contract version:** 1.3 (document). Payload `version` field is still **1**: all changes since v1 are additive.
 
 ## Changelog
+- **v1.3 (2026-09-26; payload `version` stays 1, additive)**
+  - **Optional channel allowlist** (`ALLOWED_CHANNEL_IDS`, comma-separated numeric Twitch channel IDs). When set, only
+    those channels may use `GET /api/now-playing`, `GET /api/config/status`, `POST /api/config/link/start`,
+    `POST /api/config/unlink` / `DELETE /api/config/link`, and complete `GET /auth/spotify/callback`. Other channels
+    get **403 `channel_not_allowed`** (`"message":"This extension is private."`), and the poller neither polls nor
+    publishes for them. The check runs after JWT verification (bad/missing tokens still get 401) and before the role
+    check. Unset or empty = every channel allowed (unchanged behavior). See §2 and §6.
+  - Callback popup `reason` may now be `"channel_not_allowed"` (403 page).
 - **v1.2 (2026-09-26, response to frontend contract feedback; payload `version` stays 1, additive)**
   - **`serverTime`** (epoch ms, EBS clock) added to every NowPlaying payload: `GET /api/now-playing` (stamped when
     the response is built) and PubSub `now_playing`/`heartbeat` (stamped when actually sent, after rate-limit
@@ -63,6 +71,12 @@ Always use the **latest** token from `onAuthorized` (it is refreshed periodicall
 | `GET /api/now-playing` | any valid extension JWT |
 | `/api/config/*` | `broadcaster` |
 
+**Channel allowlist (v1.3, optional).** If the EBS is configured with `ALLOWED_CHANNEL_IDS`, the JWT's `channel_id`
+must be in that list for every `/api/*` endpoint above (including unlink), otherwise the EBS returns
+`403 {"version":1,"error":{"code":"channel_not_allowed","message":"This extension is private."}}`. Order of checks:
+JWT (401) → channel allowlist (403 `channel_not_allowed`) → role (403 `forbidden_role`) → rate limit (429).
+The frontend should show a terminal "This extension is private" state for `channel_not_allowed` and not retry.
+
 ## 3. Endpoints
 
 ### `GET /healthz` (no auth)
@@ -111,7 +125,7 @@ channel, and expires after 10 minutes.
 After the user approves, Spotify redirects to `GET /auth/spotify/callback` (EBS), which shows a small HTML
 page ("Spotify linked"). **v1.2:** the page closes itself, after 1.5 s on success and 10 s on failure, and shows a
 "you can close this window" fallback plus a Close button if the browser refuses. If `window.opener` is still set,
-it also calls `opener.postMessage({type:"spotify_link_result", version:1, ok:true|false, reason:null|"access_denied"|"invalid_state"|"expired_state"|"missing_code"|"exchange_failed"|"spotify_error"}, <origin>)`
+it also calls `opener.postMessage({type:"spotify_link_result", version:1, ok:true|false, reason:null|"access_denied"|"invalid_state"|"expired_state"|"missing_code"|"exchange_failed"|"spotify_error"|"channel_not_allowed"}, <origin>)`
 for each allowed CORS origin. Verify `event.origin` equals the EBS origin before trusting it. The message is only a
 hint: status polling remains the source of truth. The current frontend sets `popup.opener = null`, so it won't
 receive this message; that is fine. The config page should then poll
@@ -119,7 +133,8 @@ receive this message; that is fine. The config page should then poll
 
 ### `GET /auth/spotify/callback?code=…&state=…`  (no JWT; called by Spotify redirect)
 Returns HTML (not JSON). Success → 200 page. Failure (denied, bad/expired state, exchange error) → 400 page
-with a short reason. Not called by the frontend directly.
+with a short reason. **v1.3:** if the channel bound in the signed `state` is not in `ALLOWED_CHANNEL_IDS`, → 403 page
+("This extension is private.", reason `channel_not_allowed`); the state is consumed and nothing is linked. Not called by the frontend directly.
 
 ### `POST /api/config/unlink`  (broadcaster)  – alias: `DELETE /api/config/link`
 Deletes stored Spotify tokens for the channel, stops polling, and broadcasts a `not_linked` state.
@@ -203,6 +218,7 @@ All errors: `{"version":1,"error":{"code":"<code>","message":"<human readable>"}
 | 401 | `invalid_token` | bad signature, malformed, missing `channel_id` |
 | 401 | `token_expired` | JWT `exp` passed → get fresh token from `onAuthorized` and retry |
 | 403 | `forbidden_role` | e.g. viewer calling `/api/config/*` |
+| 403 | `channel_not_allowed` | v1.3: `ALLOWED_CHANNEL_IDS` is set and the JWT's `channel_id` isn't in it ("This extension is private."). Terminal: don't retry |
 | 404 | `not_found` | unknown route |
 | 405 | `bad_request` | wrong HTTP method for a known route |
 | 409 | `not_linked` | action requires a linked Spotify account |

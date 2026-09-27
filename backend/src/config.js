@@ -118,6 +118,13 @@ export function loadConfig(env = process.env) {
       errors.push(`CORS origin "${o}" is not a valid URL`);
     }
   }
+  // Optional channel allowlist. Empty/unset = every channel is allowed.
+  const channelIds = String(env.ALLOWED_CHANNEL_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const badIds = channelIds.filter((x) => !/^\d+$/.test(x));
+  if (badIds.length) {
+    errors.push(`ALLOWED_CHANNEL_IDS must be comma-separated numeric Twitch channel IDs (invalid: ${badIds.map((x) => JSON.stringify(x)).join(', ')})`);
+  }
+  cfg.allowedChannelIds = [...new Set(channelIds)];
   if (cfg.twitch.requiredConfiguration && !cfg.twitch.extensionVersion) {
     errors.push('TWITCH_REQUIRED_CONFIGURATION requires TWITCH_EXTENSION_VERSION (the feature is enabled only when both are set)');
   }
@@ -128,4 +135,14 @@ export function loadConfig(env = process.env) {
     throw err;
   }
   return cfg;
+}
+
+/**
+ * Build the channel allowlist predicate. An empty list allows every channel.
+ * @param {string[]|undefined|null} ids
+ * @returns {(channelId:string)=>boolean}
+ */
+export function channelAllowlist(ids) {
+  const set = new Set((ids || []).map(String));
+  return set.size === 0 ? () => true : (channelId) => set.has(String(channelId));
 }

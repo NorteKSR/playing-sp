@@ -71,6 +71,7 @@ You can also use the dashboard: app → **Secrets**. Tip: `fly secrets import` r
 | `TWITCH_EXTENSION_VERSION` | Installed extension version (optional) | no | e.g. `0.0.1` |
 | `TWITCH_REQUIRED_CONFIGURATION` | Required Configurations string (optional; only if set in the console) | no | leave unset unless you use it |
 | `TWITCH_REQUIRED_CONFIGURATION_ON_UNLINK` | Optional value written on unlink | no | leave unset |
+| `ALLOWED_CHANNEL_IDS` | Optional channel allowlist: comma-separated numeric Twitch channel IDs; others get 403 `channel_not_allowed`. Unset = all channels | no | e.g. `12345678` (only your channel), or leave unset |
 | `TWITCH_LOCAL_TEST_ORIGINS` | Extra CORS origins for Twitch Local Test | no | already `""` in fly.toml |
 | `API_RATE_LIMIT_PER_MINUTE`, `POLL_*`, `HEARTBEAT_INTERVAL_MS`, `SEEK_THRESHOLD_MS`, `POLL_ONLY_WHEN_VIEWED`, `VIEWER_ACTIVITY_WINDOW_MS`, `TWITCH_PUBSUB_DISABLED`, `TWITCH_JWT_CLOCK_TOLERANCE_SEC`, `LOG_LEVEL` | Tuning knobs (see `backend/.env.example`) | no | defaults are fine |
 | `PORT`, `HOST`, `DATA_DIR` | Server/listen/data dir | no | already in fly.toml; don't change |
@@ -135,6 +136,18 @@ fly ssh console --app <your-app> -C "chown node:node /data/tokens.json"
 fly apps restart <your-app>
 ```
 Stop the old backend right after migrating, so two pollers don't refresh the same Spotify tokens.
+
+## Optional: restrict the backend to specific channels
+Set `ALLOWED_CHANNEL_IDS` to a comma-separated list of numeric Twitch channel IDs (see `backend/README.md` →
+"Channel allowlist"). Every other channel gets `403 channel_not_allowed` ("This extension is private.") and is never
+polled. It complements Twitch's Streamer Allowlist (Access tab of the extension version in the Twitch developer
+console, see https://dev.twitch.tv/docs/extensions/life-cycle/), which controls which streamers can install the released extension.
+```bash
+fly secrets set ALLOWED_CHANNEL_IDS=12345678 --stage --app <your-app>
+fly deploy --ha=false --app <your-app>
+fly secrets unset ALLOWED_CHANNEL_IDS --app <your-app>   # remove the restriction again
+```
+The startup log shows only the list size ("Channel allowlist: 1 channel(s) allowed").
 
 ## Useful commands
 `fly logs` · `fly status` · `fly secrets list` (names and digests only) · `fly deploy` (redeploy after code changes) ·

@@ -7,7 +7,7 @@ cleanup() { kill "${EBS_PID:-}" "${MOCK_PID:-}" 2>/dev/null || true; rm -rf "$WO
 trap cleanup EXIT
 export TOKEN_ENCRYPTION_KEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')"
 export TWITCH_EXTENSION_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')"
-export PORT=$EBS_PORT HOST=127.0.0.1 DATA_DIR="$WORK/data" LOG_LEVEL=warn \
+export PORT=$EBS_PORT HOST=127.0.0.1 DATA_DIR="$WORK/data" LOG_LEVEL=warn ALLOWED_CHANNEL_IDS=12345 \
   SPOTIFY_CLIENT_ID=smoke SPOTIFY_CLIENT_SECRET=smoke SPOTIFY_REDIRECT_URI="http://127.0.0.1:$EBS_PORT/auth/spotify/callback" \
   TWITCH_EXTENSION_CLIENT_ID=smokeext TWITCH_EXTENSION_OWNER_ID=1000 TWITCH_EXTENSION_VERSION=0.0.1 TWITCH_REQUIRED_CONFIGURATION=spotify-linked-v1 POLL_INTERVAL_PLAYING_MS=1000 POLL_INTERVAL_IDLE_MS=1000 POLL_INTERVAL_PAUSED_MS=1000 \
   SPOTIFY_ACCOUNTS_BASE="http://127.0.0.1:$MOCK_PORT" SPOTIFY_API_BASE="http://127.0.0.1:$MOCK_PORT/v1" TWITCH_API_BASE="http://127.0.0.1:$MOCK_PORT/helix"
@@ -23,6 +23,8 @@ check healthz '"ok":true' "$(curl -s $E/healthz)"
 check no-token missing_token "$(curl -s $E/api/now-playing)"
 check expired token_expired "$(curl -s $E/api/now-playing -H "Authorization: Bearer $X")"
 check not-linked '"state":"not_linked"' "$(curl -s $E/api/now-playing -H "Authorization: Bearer $V")"
+O=$(node "$HERE/scripts/mint-jwt.js" viewer 99999)
+check channel-not-allowed '"code":"channel_not_allowed"' "$(curl -s $E/api/now-playing -H "Authorization: Bearer $O")"
 check viewer-config-403 forbidden_role "$(curl -s $E/api/config/status -H "Authorization: Bearer $V")"
 check cors-local-test 'access-control-allow-origin: https://localhost:8080' "$(curl -s -i -X OPTIONS $E/api/now-playing -H 'Origin: https://localhost:8080' | tr 'A-Z' 'a-z')"
 check server-time '"serverTime":' "$(curl -s $E/api/now-playing -H "Authorization: Bearer $V")"

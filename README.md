@@ -44,6 +44,8 @@ own Spotify app, your own Twitch extension and your own backend.
 - Spotify OAuth (Authorization Code + PKCE). Tokens are encrypted at rest (AES-256-GCM) and refreshed automatically.
 - Adaptive polling of Spotify's *currently playing* endpoint: faster while playing, slower while paused or idle,
   backing off on errors, rate limits and quota. By default it only polls channels whose extension is being viewed.
+- Optional channel allowlist (`ALLOWED_CHANNEL_IDS`): restrict the backend to specific Twitch channels; all others get
+  `403 channel_not_allowed` ("This extension is private.") and are never polled.
 - Publishes changes to viewers through Twitch Extension PubSub and respects Twitch's message limits.
 
 **Developer experience**
@@ -178,6 +180,12 @@ This is not legal advice. Read the policies yourself before publishing anything.
   ([Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)).
 - **One backend instance.** The token store is a single encrypted file on a Fly volume and the poller runs in-process,
   so run exactly one machine.
+- **Private use (optional).** Set `ALLOWED_CHANNEL_IDS` (comma-separated numeric Twitch channel IDs, e.g. `12345678`)
+  to make the backend refuse every other channel with `403 channel_not_allowed`. Unset means every channel is allowed.
+  It complements Twitch's Streamer Allowlist (Access tab in the developer console, see
+  [Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)), which limits who can *install* the extension, by also blocking the
+  backend. The frontend in this repo has no dedicated "private" screen yet, so blocked channels see a generic error.
+  See [backend/README.md](backend/README.md#channel-allowlist-allowed_channel_ids-optional).
 
 More detail: [docs/PLATFORM_NOTES.md](docs/PLATFORM_NOTES.md),
 [backend/README.md](backend/README.md) (platform constraints), [frontend/TWITCH_COMPLIANCE.md](frontend/TWITCH_COMPLIANCE.md)

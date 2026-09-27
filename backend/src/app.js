@@ -5,6 +5,7 @@ import { JwtError } from './auth/jwt.js';
 import { createState, verifyState, createPkcePair, StateError } from './auth/oauthState.js';
 import { HttpError, sendJson, sendError, sendCallbackPage, readJsonBody, RateLimiter, CONTRACT_VERSION } from './http/util.js';
 import { baseState } from './spotify/normalize.js';
+import { channelAllowlist } from './config.js';
 
 const STATE_TTL_SEC = 600;
 
@@ -15,6 +16,8 @@ const STATE_TTL_SEC = 600;
  */
 export function createApp({ config, store, spotify, poller, stateKey, twitchConfig = null, now = () => Date.now(), log = console }) {
   const limiter = new RateLimiter({ perMinute: config.rateLimitPerMinute ?? 120, now });
+  const channelAllowed = channelAllowlist(config.allowedChannelIds);
+  const NOT_ALLOWED_MSG = 'This extension is private.';
   const allowed = new Set(config.corsAllowedOrigins || []);
   const reqCfg = config.twitch.requiredConfiguration && config.twitch.extensionVersion && twitchConfig
     ? { value: config.twitch.requiredConfiguration, version: config.twitch.extensionVersion }
@@ -65,6 +68,8 @@ export function createApp({ config, store, spotify, poller, stateKey, twitchConf
       if (e instanceof JwtError) throw new HttpError(401, e.code, e.message);
       throw e;
     }
+    // Channel allowlist (ALLOWED_CHANNEL_IDS): checked after the JWT is verified, before the role check.
+    if (!channelAllowed(claims.channelId)) throw new HttpError(403, 'channel_not_allowed', NOT_ALLOWED_MSG);
     if (role && claims.role !== role) throw new HttpError(403, 'forbidden_role', `This endpoint requires role "${role}"`);
     limiter.check(`${claims.channelId}:${claims.opaqueUserId || claims.userId || req.socket.remoteAddress}`);
     return claims;
@@ -135,6 +140,10 @@ export function createApp({ config, store, spotify, poller, stateKey, twitchConf
       } catch (e) {
         if (e instanceof StateError) return page(res, 400, 'Linking failed', `Invalid or expired link request (${e.message}). Start again from the extension configuration page.`, false, 'invalid_state');
         throw e;
+      }
+      if (!channelAllowed(st.channelId)) {
+        await store.takePendingAuth(st.nonce); // consume it anyway
+        return page(res, 403, 'Linking not allowed', `${NOT_ALLOWED_MSG} This Twitch channel is not allowed to use it.`, false, 'channel_not_allowed');
       }
       const pending = await store.takePendingAuth(st.nonce); // one-time use
       if (!pending || pending.channelId !== st.channelId) {

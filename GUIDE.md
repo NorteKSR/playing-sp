@@ -193,6 +193,7 @@ Every variable is described in [`backend/.env.example`](backend/.env.example).
 | `CORS_ALLOWED_ORIGINS` | `https://YOUR_TWITCH_EXTENSION_CLIENT_ID.ext-twitch.tv` (also the default when unset) | no |
 | `TWITCH_EXTENSION_VERSION` | Optional. Your extension version, e.g. `0.0.1`; only needed with required configuration | no |
 | `TWITCH_REQUIRED_CONFIGURATION` | Optional. `spotify-linked-v1` only if you chose Custom/My Own Service | no |
+| `ALLOWED_CHANNEL_IDS` | Optional. Comma-separated numeric Twitch channel IDs allowed to use the backend, e.g. `12345678`. Unset = every channel | no |
 
 **CORS:** Twitch serves your extension from `https://YOUR_TWITCH_EXTENSION_CLIENT_ID.ext-twitch.tv` in Hosted Test
 and after release. The backend only answers browser requests from origins in `CORS_ALLOWED_ORIGINS` (default: exactly
@@ -212,6 +213,15 @@ fly secrets set SPOTIFY_CLIENT_ID=YOUR_SPOTIFY_CLIENT_ID \
 ```
 You can also use `fly secrets import` and paste `NAME=value` lines, or the app's **Secrets** page in the Fly.io
 dashboard. See [Secrets](https://fly.io/docs/apps/secrets/).
+
+**Optional: keep it private.** To let only your own channel (or a few channels) use the backend, also set
+`ALLOWED_CHANNEL_IDS`, e.g. `fly secrets set ALLOWED_CHANNEL_IDS=12345678 --stage` (your numeric Twitch user ID, the same
+value as `TWITCH_EXTENSION_OWNER_ID` if it's your channel; separate several IDs with commas). Every other channel then
+gets `403 channel_not_allowed` ("This extension is private.") and is never polled. This complements Twitch's
+**Streamer Allowlist** (the **Access** tab of your extension version in the developer console; see
+[Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)), which limits who can install the extension; the backend
+allowlist also blocks the API. Leave it unset to allow every channel. Details:
+[backend/README.md](backend/README.md#channel-allowlist-allowed_channel_ids-optional).
 
 **Keep `TOKEN_ENCRYPTION_KEY` stable.** It encrypts the stored Spotify tokens. If you change it or lose the volume,
 every streamer has to connect Spotify again.

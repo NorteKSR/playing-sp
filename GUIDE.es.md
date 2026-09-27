@@ -206,6 +206,7 @@ Todas las variables están descritas en [`backend/.env.example`](backend/.env.ex
 | `CORS_ALLOWED_ORIGINS` | `https://YOUR_TWITCH_EXTENSION_CLIENT_ID.ext-twitch.tv` (es también el valor por defecto si no la defines) | no |
 | `TWITCH_EXTENSION_VERSION` | Opcional. La versión de tu extensión, p. ej. `0.0.1`; solo hace falta con la configuración obligatoria | no |
 | `TWITCH_REQUIRED_CONFIGURATION` | Opcional. `spotify-linked-v1`, solo si elegiste Custom/My Own Service | no |
+| `ALLOWED_CHANNEL_IDS` | Opcional. IDs numéricos de canales de Twitch separados por comas que pueden usar el backend, p. ej. `12345678`. Sin definir = todos los canales | no |
 
 **CORS:** en Hosted Test y tras la publicación, Twitch sirve tu extensión desde
 `https://YOUR_TWITCH_EXTENSION_CLIENT_ID.ext-twitch.tv`. El backend solo responde a peticiones del navegador que vengan
@@ -226,6 +227,15 @@ fly secrets set SPOTIFY_CLIENT_ID=YOUR_SPOTIFY_CLIENT_ID \
 ```
 También puedes usar `fly secrets import` y pegar líneas `NOMBRE=valor`, o la página **Secrets** de la app en el panel
 de Fly.io. Consulta [Secrets](https://fly.io/docs/apps/secrets/).
+
+**Opcional: hacerla privada.** Si quieres que solo tu canal (o unos pocos) pueda usar el backend, define también
+`ALLOWED_CHANNEL_IDS`, p. ej. `fly secrets set ALLOWED_CHANNEL_IDS=12345678 --stage` (tu ID numérico de usuario de Twitch,
+el mismo valor que `TWITCH_EXTENSION_OWNER_ID` si es tu canal; separa varios IDs con comas). Cualquier otro canal recibirá
+`403 channel_not_allowed` ("This extension is private.") y nunca se consultará en Spotify. Complementa la
+**Streamer Allowlist** de Twitch (pestaña **Access** de la versión de tu extensión en la consola de desarrollador;
+consulta [Life cycle](https://dev.twitch.tv/docs/extensions/life-cycle/)), que limita quién puede instalar la extensión; la lista
+del backend bloquea además la API. Déjala sin definir para permitir todos los canales. Más detalles:
+[backend/README.md](backend/README.md#channel-allowlist-allowed_channel_ids-optional).
 
 **No cambies `TOKEN_ENCRYPTION_KEY`.** Cifra los tokens de Spotify guardados. Si la cambias o pierdes el volumen, todos
 los streamers tendrán que volver a conectar Spotify.

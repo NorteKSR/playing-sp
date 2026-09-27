@@ -7,10 +7,11 @@ export class Poller {
   /**
    * @param {{ store:any, tokens:import('../spotify/tokenManager.js').TokenManager,
    *   spotify:import('../spotify/client.js').SpotifyClient, publisher:{publish(channelId:string,msg:object):void},
-   *   poll:object, now?:()=>number, setTimer?:Function, clearTimer?:Function, log?:any }} o
+   *   poll:object, now?:()=>number, setTimer?:Function, clearTimer?:Function, log?:any,
+   *   isChannelAllowed?:(channelId:string)=>boolean }} o
    */
-  constructor({ store, tokens, spotify, publisher, poll, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, log = console }) {
-    Object.assign(this, { store, tokens, spotify, publisher, now, setTimer, clearTimer, log });
+  constructor({ store, tokens, spotify, publisher, poll, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, log = console, isChannelAllowed = () => true }) {
+    Object.assign(this, { store, tokens, spotify, publisher, now, setTimer, clearTimer, log, isChannelAllowed });
     this.cfg = {
       playingMs: 5000, pausedMs: 15000, idleMs: 30000, maxBackoffMs: 300000, quotaBackoffMs: 600000,
       heartbeatMs: 60000, seekThresholdMs: 10000, onlyWhenViewed: false, viewerActivityWindowMs: 600000,
@@ -28,7 +29,12 @@ export class Poller {
 
   async start() {
     this.stopped = false;
-    for (const id of await this.store.listLinkedChannels()) this.ensure(id);
+    let skipped = 0;
+    for (const id of await this.store.listLinkedChannels()) {
+      if (this.isChannelAllowed(id)) this.ensure(id);
+      else skipped++;
+    }
+    if (skipped) this.log.info?.(`[poller] skipping ${skipped} linked channel(s) not in ALLOWED_CHANNEL_IDS`);
   }
 
   stop() {
@@ -39,6 +45,7 @@ export class Poller {
 
   /** Start polling a channel (idempotent). */
   ensure(channelId, delayMs = 0) {
+    if (!this.isChannelAllowed(channelId)) return;
     const m = this._m(channelId);
     m.dormant = false;
     if (!m.timer && !m.running) this._schedule(channelId, delayMs);
@@ -99,6 +106,7 @@ export class Poller {
 
   _run(channelId) {
     const m = this._m(channelId);
+    if (!this.isChannelAllowed(channelId)) return Promise.resolve({ delayMs: null, skipped: 'channel_not_allowed' });
     m.running = this.pollOnce(channelId)
       .catch((e) => {
         this.log.error?.(`[poller] ${channelId}: unexpected ${e.stack || e}`);
@@ -113,6 +121,7 @@ export class Poller {
   }
 
   _publish(channelId, msg) {
+    if (!this.isChannelAllowed(channelId)) return;
     this._m(channelId).lastPublishedAt = this.now();
     try {
       this.publisher.publish(channelId, msg);
