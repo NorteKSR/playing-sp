@@ -1,0 +1,21 @@
+{
+  "name": "playing-sp-frontend",
+  "version": "0.1.0",
+  "description": "Twitch extension frontend: shows the streamer's current Spotify track",
+  "scripts": {
+    "dev": "node dev/server.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "test": "node --test test/unit/",
+    "test:e2e": "node test/e2e/run.mjs",
+    "test:all": "npm test && npm run test:e2e",
+    "test:integration": "node test/integration/real-ebs.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.63.0"
+  },
+  "private": true,
+  "type": "module"
+}

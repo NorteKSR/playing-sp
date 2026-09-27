@@ -1,0 +1,52 @@
+# Fly.io config for the Playing SP EBS. Run fly commands from this backend/ directory.
+# Replace `app` with the name you chose in `fly apps create` (it becomes https://<your-app>.fly.dev).
+# Secrets (SPOTIFY_CLIENT_SECRET, TWITCH_EXTENSION_SECRET, TOKEN_ENCRYPTION_KEY, ...) are NOT here:
+# set them with `fly secrets set` / `fly secrets import`. See ../DEPLOY.md.
+app = "<your-app>"   # CHANGE THIS to your Fly app name (from `fly apps create`)
+primary_region = "sjc"   # San Jose; change to the region closest to you (list: fly platform regions)
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  DATA_DIR = "/data"
+  LOG_LEVEL = "info"
+  # Disable the Twitch "Local Test" CORS origins in production.
+  TWITCH_LOCAL_TEST_ORIGINS = ""
+  SPOTIFY_USE_PKCE = "true"
+  POLLER_ENABLED = "true"
+
+# Persistent volume for the encrypted token store (tokens.json). Create it once with:
+#   fly volumes create ebs_data --region sjc --size 1 --app <your-app>
+[mounts]
+  source = "ebs_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The Spotify poller must keep running while viewers watch: never auto-stop, always keep 1 machine.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Secrets / local config (keep the templates)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime data (encrypted token store)
+data/
+
+# Logs
+*.log
+.backend.log
+.tunnel.log
+
+# Build output and release packages
+dist/
+build/
+.build/
+.screenshots/
+.dev-dist/
+release/
+*.zip
+coverage/
+
+# Editor / OS
+.~lock.*
+*~
+*.swp
+.DS_Store

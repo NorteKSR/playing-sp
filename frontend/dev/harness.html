@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Now Playing — dev harness</title>
+    <link rel="stylesheet" href="/__dev/harness.css" />
+    <script src="/__dev/harness.js" type="module"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Now Playing — dev harness <small>(mock Twitch helper + mock EBS, not packaged)</small></h1>
+      <div id="info"></div>
+    </header>
+    <section class="controls">
+      <fieldset>
+        <legend>EBS → PubSub broadcast</legend>
+        <button data-scenario="playingA">Play track A</button>
+        <button data-scenario="playingB">Play track B (long)</button>
+        <button data-scenario="playingC">Play track C</button>
+        <button data-scenario="nearEnd">Track C near end</button>
+        <button data-scenario="episode">Podcast episode</button>
+        <button data-scenario="paused">Pause</button>
+        <button data-scenario="resume">Resume</button>
+        <button data-scenario="seek">Seek to 80%</button>
+        <button data-scenario="nothing">Nothing playing</button>
+        <button data-scenario="ad">Ad</button>
+        <button data-scenario="unknown">Unknown</button>
+        <button data-scenario="notLinked">Not linked</button>
+        <button id="malformed">Malformed message</button>
+      </fieldset>
+      <fieldset>
+        <legend>Twitch context</legend>
+        <button data-theme="dark">Dark theme</button>
+        <button data-theme="light">Light theme</button>
+        <button id="highlight">Toggle overlay highlight</button>
+        <button id="controls">Toggle player controls</button>
+        <label>Stream delay (s) <input id="latency" type="number" value="0" min="0" max="30" step="1" /></label>
+      </fieldset>
+      <fieldset>
+        <legend>Mock EBS</legend>
+        <button id="fail">Fail next 3 GET /now-playing</button>
+        <button id="slow">Slow EBS (2s)</button>
+        <button id="fast">Normal speed</button>
+        <button id="revoked">Unlink as "revoked"</button>
+        <button id="reqcfg-pending">Required config pending</button>
+        <button id="reqcfg-done">Required config set</button>
+        <button id="reload">Reload all views</button>
+      </fieldset>
+    </section>
+    <main class="views">
+      <figure><figcaption>panel.html (318×210)</figcaption><iframe id="v-panel" src="/panel.html?anchor=panel&mode=viewer&platform=web" width="318" height="210"></iframe></figure>
+      <figure><figcaption>video_overlay.html (over a fake video)</figcaption><div class="video"><iframe id="v-overlay" src="/video_overlay.html?anchor=video_overlay&mode=viewer&platform=web" width="640" height="360"></iframe></div></figure>
+      <figure><figcaption>video_component.html (320×240)</figcaption><iframe id="v-component" src="/video_component.html?anchor=component&mode=viewer&platform=web" width="320" height="240"></iframe></figure>
+      <figure><figcaption>config.html (broadcaster)</figcaption><iframe id="v-config" src="/config.html?mode=config&platform=web" width="620" height="400"></iframe></figure>
+      <figure><figcaption>live_config.html (dashboard)</figcaption><iframe id="v-live" src="/live_config.html?mode=dashboard&platform=web" width="360" height="400"></iframe></figure>
+    </main>
+    <pre id="log"></pre>
+  </body>
+</html>

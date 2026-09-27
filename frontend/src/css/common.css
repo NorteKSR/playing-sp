@@ -1,0 +1,54 @@
+/* Shared tokens. No remote fonts: system font stack only. */
+:root {
+  --accent: #1ed760; /* Spotify Green, as used in the official 2024 logo files */
+  --radius: 8px;
+  --font: Inter, Roobert, "Helvetica Neue", Helvetica, Arial, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+html[data-theme='dark'] {
+  --bg: #191414; /* Spotify guideline for playing views when artwork colour isn't extracted */
+  --bg-raised: #221d1d;
+  --bg-sunken: #0f0c0c;
+  --fg: #efeff1;
+  --fg-muted: #adadb8;
+  --border: rgba(255, 255, 255, 0.1);
+  --track: rgba(255, 255, 255, 0.16);
+  --danger: #ff6b6b;
+  --btn-bg: rgba(255, 255, 255, 0.12);
+  --btn-bg-hover: rgba(255, 255, 255, 0.2);
+  color-scheme: dark;
+}
+html[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-raised: #ffffff; /* pure white so the green Spotify logo is allowed wherever it appears */
+  --bg-sunken: #efeff1;
+  --fg: #0e0e10;
+  --fg-muted: #53535f;
+  --border: rgba(0, 0, 0, 0.1);
+  --track: rgba(0, 0, 0, 0.12);
+  --danger: #c62828;
+  --btn-bg: rgba(0, 0, 0, 0.06);
+  --btn-bg-hover: rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+[hidden] { display: none !important; }
+a { color: inherit; }
+button { font: inherit; }
+/* ---- Spotify logo (official unmodified SVGs; see src/js/brand.js and TWITCH_COMPLIANCE.md) ---- */
+.sp-logo { display: inline-block; flex: 0 0 auto; padding: 11px; /* exclusion zone = ½ icon height (icon ≈ 22px) */ line-height: 0; }
+.sp-logo-img { display: block; width: 84px; height: auto; /* full logo min width 70px */ }
+html[data-theme='dark'] .sp-logo--green { display: none; }
+html[data-theme='light'] .sp-logo--white { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

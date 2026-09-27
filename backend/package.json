@@ -1,0 +1,21 @@
+{
+  "name": "playing-sp-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Extension Backend Service (EBS) for a Twitch extension showing the streamer's current Spotify track",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/",
+    "gen-secrets": "node scripts/gen-secrets.js",
+    "mint-jwt": "node scripts/mint-jwt.js",
+    "smoke": "bash scripts/smoke.sh",
+    "mock-upstreams": "node scripts/mock-upstreams.js"
+  },
+  "license": "MIT"
+}

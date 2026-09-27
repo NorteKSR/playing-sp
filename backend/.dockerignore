@@ -1,0 +1,14 @@
+# Never send secrets or local state to the image build context.
+.env
+.env.*
+data/
+node_modules/
+test/
+coverage/
+*.log
+.git
+Dockerfile
+.dockerignore
+fly.toml
+README.md
+DESIGN_FUTURE_BITS.md
